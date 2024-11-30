@@ -180,3 +180,33 @@ docker run \
 ```
 
 The docker run command above mounts the repo inside the docker image, such that you can edit files from the host. Streamlit is already configured with auto reloading.
+
+## Windows Setup Instructions
+
+To run this project on Windows:
+
+1. Prerequisites:
+   - Python 3.12 or lower
+   - Rust (for cargo) - Install from https://www.rust-lang.org/tools/install
+   - Git (optional, but recommended)
+
+2. Setup Steps:
+   ```cmd
+   # Clone the repository (if not already done)
+   git clone <repository-url>
+   cd computer-use-demo
+
+   # Run the setup script
+   setup.bat
+   ```
+
+3. Running the Application:
+   ```cmd
+   # Activate the virtual environment (if not already activated)
+   .venv\Scripts\activate.bat
+
+   # Run your application
+   python -m computer_use_demo
+   ```
+
+Note: This Windows version does not require Docker and runs natively on your system.

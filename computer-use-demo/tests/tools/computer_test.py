@@ -34,7 +34,9 @@ async def test_computer_tool_type(computer_tool):
             computer_tool, "screenshot", new_callable=AsyncMock
         ) as mock_screenshot,
     ):
-        mock_shell.return_value = ToolResult(output="Text typed")
+        mock_shell.return_value = ToolResult(
+            output="Text typed", base64_image="base64_screenshot"
+        )
         mock_screenshot.return_value = ToolResult(base64_image="base64_screenshot")
         result = await computer_tool(action="type", text="Hello, World!")
         assert mock_shell.call_count == 1
@@ -57,8 +59,8 @@ async def test_computer_tool_screenshot(computer_tool):
 @pytest.mark.asyncio
 async def test_computer_tool_scaling(computer_tool):
     computer_tool._scaling_enabled = True
-    computer_tool.width = 1920
-    computer_tool.height = 1080
+    computer_tool.screen_width = 1920
+    computer_tool.screen_height = 1080
 
     # Test scaling from API to computer
     x, y = computer_tool.scale_coordinates(ScalingSource.API, 1366, 768)
@@ -80,8 +82,8 @@ async def test_computer_tool_scaling(computer_tool):
 @pytest.mark.asyncio
 async def test_computer_tool_scaling_with_different_aspect_ratio(computer_tool):
     computer_tool._scaling_enabled = True
-    computer_tool.width = 1920
-    computer_tool.height = 1200  # 16:10 aspect ratio
+    computer_tool.screen_width = 1920
+    computer_tool.screen_height = 1200  # 16:10 aspect ratio
 
     # Test scaling from API to computer
     x, y = computer_tool.scale_coordinates(ScalingSource.API, 1280, 800)
@@ -97,8 +99,8 @@ async def test_computer_tool_scaling_with_different_aspect_ratio(computer_tool):
 @pytest.mark.asyncio
 async def test_computer_tool_no_scaling_for_unsupported_resolution(computer_tool):
     computer_tool._scaling_enabled = True
-    computer_tool.width = 4096
-    computer_tool.height = 2160
+    computer_tool.screen_width = 4096
+    computer_tool.screen_height = 2160
 
     # Test no scaling for unsupported resolution
     x, y = computer_tool.scale_coordinates(ScalingSource.API, 4096, 2160)
@@ -113,8 +115,8 @@ async def test_computer_tool_no_scaling_for_unsupported_resolution(computer_tool
 @pytest.mark.asyncio
 async def test_computer_tool_scaling_out_of_bounds(computer_tool):
     computer_tool._scaling_enabled = True
-    computer_tool.width = 1920
-    computer_tool.height = 1080
+    computer_tool.screen_width = 1920
+    computer_tool.screen_height = 1080
 
     # Test scaling from API with out of bounds coordinates
     with pytest.raises(ToolError, match="Coordinates .*, .* are out of bounds"):
