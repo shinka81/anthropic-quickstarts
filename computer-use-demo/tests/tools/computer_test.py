@@ -17,30 +17,23 @@ def computer_tool():
 
 @pytest.mark.asyncio
 async def test_computer_tool_mouse_move(computer_tool):
-    with patch.object(computer_tool, "shell", new_callable=AsyncMock) as mock_shell:
-        mock_shell.return_value = ToolResult(output="Mouse moved")
+    with patch("pyautogui.moveTo") as mock_move:
         result = await computer_tool(action="mouse_move", coordinate=[100, 200])
-        mock_shell.assert_called_once_with(
-            f"{computer_tool.xdotool} mousemove --sync 100 200"
-        )
+        mock_move.assert_called_once_with(100, 200)
         assert result.output == "Mouse moved"
 
 
 @pytest.mark.asyncio
 async def test_computer_tool_type(computer_tool):
     with (
-        patch.object(computer_tool, "shell", new_callable=AsyncMock) as mock_shell,
+        patch("pyautogui.write") as mock_write,
         patch.object(
             computer_tool, "screenshot", new_callable=AsyncMock
         ) as mock_screenshot,
     ):
-        mock_shell.return_value = ToolResult(
-            output="Text typed", base64_image="base64_screenshot"
-        )
         mock_screenshot.return_value = ToolResult(base64_image="base64_screenshot")
         result = await computer_tool(action="type", text="Hello, World!")
-        assert mock_shell.call_count == 1
-        assert "type --delay 12 -- 'Hello, World!'" in mock_shell.call_args[0][0]
+        mock_write.assert_called_once_with("Hello, World!", interval=0.012)
         assert result.output == "Text typed"
         assert result.base64_image == "base64_screenshot"
 
@@ -139,3 +132,47 @@ async def test_computer_tool_missing_coordinate(computer_tool):
 async def test_computer_tool_missing_text(computer_tool):
     with pytest.raises(ToolError, match="text is required for type"):
         await computer_tool(action="type")
+
+
+@pytest.mark.asyncio
+async def test_computer_tool_click_actions(computer_tool):
+    with (
+        patch("pyautogui.click") as mock_click,
+        patch("pyautogui.rightClick") as mock_right_click,
+        patch("pyautogui.middleClick") as mock_middle_click,
+    ):
+        # Test left click
+        result = await computer_tool(action="left_click")
+        mock_click.assert_called_once()
+        assert result.output == "left_click performed"
+
+        # Test right click
+        result = await computer_tool(action="right_click")
+        mock_right_click.assert_called_once()
+        assert result.output == "right_click performed"
+
+        # Test middle click
+        result = await computer_tool(action="middle_click")
+        mock_middle_click.assert_called_once()
+        assert result.output == "middle_click performed"
+
+        # Test double click
+        result = await computer_tool(action="double_click")
+        assert (
+            mock_click.call_count == 2
+        )  # One from left_click and one from double_click
+        assert result.output == "double_click performed"
+
+
+@pytest.mark.asyncio
+async def test_computer_tool_drag(computer_tool):
+    with (
+        patch("pyautogui.mouseDown") as mock_down,
+        patch("pyautogui.moveTo") as mock_move,
+        patch("pyautogui.mouseUp") as mock_up,
+    ):
+        result = await computer_tool(action="left_click_drag", coordinate=[100, 200])
+        mock_down.assert_called_once()
+        mock_move.assert_called_once_with(100, 200)
+        mock_up.assert_called_once()
+        assert result.output == "Mouse dragged"

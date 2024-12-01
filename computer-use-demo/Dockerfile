@@ -15,6 +15,7 @@ RUN apt-get update && \
     sudo \
     mutter \
     x11vnc \
+    gnome-screenshot \
     # Python/pyenv reqs
     build-essential \
     libssl-dev  \

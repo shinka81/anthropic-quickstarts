@@ -5,3 +5,4 @@ boto3>=1.28.57
 google-auth<3,>=2
 pillow>=10.1.0  # Required for screenshot handling
 pyautogui>=0.9.54  # Required for Windows environment
+python-xlib  # Required for Linux environment

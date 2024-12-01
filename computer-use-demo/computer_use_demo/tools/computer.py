@@ -1,13 +1,14 @@
 import asyncio
 import base64
+import os
 import platform
 import tempfile
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Literal, Sequence, TypedDict, cast
+from typing import ClassVar, Literal, Sequence, TypedDict
 from uuid import uuid4
 
-from anthropic.types.beta import BetaToolUnionParam
+from anthropic.types.beta import BetaToolComputerUse20241022Param
 
 from .base import BaseAnthropicTool, ToolError, ToolResult
 
@@ -48,6 +49,12 @@ class ScalingSource(StrEnum):
     API = "api"
 
 
+class ComputerToolOptions(TypedDict):
+    display_height_px: int
+    display_width_px: int
+    display_number: int | None
+
+
 def chunks(s: str, chunk_size: int) -> list[str]:
     return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
 
@@ -56,16 +63,28 @@ class ComputerTool(BaseAnthropicTool):
     """A tool that allows the agent to control the computer."""
 
     name: ClassVar[Literal["computer"]] = "computer"
-    api_type: ClassVar[Literal["function"]] = "function"
+    api_type: ClassVar[Literal["computer_20241022"]] = "computer_20241022"
     screen_width: int
     screen_height: int
+    display_num: int | None = None
     _screenshot_delay = 2.0
     _scaling_enabled = True
-    _is_windows = platform.system() == "Windows"
+
+    @property
+    def options(self) -> ComputerToolOptions:
+        width, height = self.scale_coordinates(
+            ScalingSource.COMPUTER, self.screen_width, self.screen_height
+        )
+        return {
+            "display_width_px": width,
+            "display_height_px": height,
+            "display_number": self.display_num,
+        }
 
     def __init__(self):
         """Initialize the computer tool."""
         try:
+            os.environ.setdefault("DISPLAY", ":1")
             import pyautogui
 
             size = pyautogui.size()
@@ -76,9 +95,6 @@ class ComputerTool(BaseAnthropicTool):
         except ImportError:
             self.screen_width = 1920  # Default fallback
             self.screen_height = 1080  # Default fallback
-
-        if not self._is_windows:
-            self.xdotool = "xdotool"
 
         super().__init__()
 
@@ -152,30 +168,6 @@ class ComputerTool(BaseAnthropicTool):
                 scale_y = target_dimension["height"] / self.screen_height
                 return int(x * scale_x), int(y * scale_y)
 
-    async def shell(self, command: str, take_screenshot=True) -> ToolResult:
-        """Run a shell command and return the output, error, and optionally a screenshot."""
-        if self._is_windows:
-            try:
-                if take_screenshot:
-                    await asyncio.sleep(self._screenshot_delay)
-                    screenshot_result = await self.screenshot()
-                    return ToolResult(
-                        output="Command executed",
-                        base64_image=screenshot_result.base64_image,
-                    )
-                return ToolResult(output="Command executed")
-            except ImportError:
-                return ToolResult(error="pyautogui is not installed")
-        else:
-            # Linux command handling
-            if take_screenshot:
-                await asyncio.sleep(self._screenshot_delay)
-                screenshot_result = await self.screenshot()
-                return ToolResult(
-                    output=command, base64_image=screenshot_result.base64_image
-                )
-            return ToolResult(output=command)
-
     async def screenshot(self) -> ToolResult:
         """Take a screenshot of the current screen and return the base64 encoded image."""
         output_dir = Path(OUTPUT_DIR)
@@ -238,23 +230,13 @@ class ComputerTool(BaseAnthropicTool):
                 x, y = coordinate[0], coordinate[1]
 
                 if action == "mouse_move":
-                    if self._is_windows:
-                        pyautogui.moveTo(x, y)
-                        return await self.shell("", take_screenshot=False)
-                    else:
-                        return await self.shell(
-                            f"{self.xdotool} mousemove --sync {x} {y}"
-                        )
+                    pyautogui.moveTo(x, y)
+                    return ToolResult(output="Mouse moved")
                 elif action == "left_click_drag":
-                    if self._is_windows:
-                        pyautogui.mouseDown()
-                        pyautogui.moveTo(x, y)
-                        pyautogui.mouseUp()
-                        return await self.shell("", take_screenshot=False)
-                    else:
-                        return await self.shell(
-                            f"{self.xdotool} mousedown 1 mousemove --sync {x} {y} mouseup 1"
-                        )
+                    pyautogui.mouseDown()
+                    pyautogui.moveTo(x, y)
+                    pyautogui.mouseUp()
+                    return ToolResult(output="Mouse dragged")
 
             if action in ("key", "type"):
                 if text is None:
@@ -265,28 +247,17 @@ class ComputerTool(BaseAnthropicTool):
                     raise ToolError(output=f"{text} must be a string")
 
                 if action == "key":
-                    if self._is_windows:
-                        pyautogui.press(text)
-                        return await self.shell("", take_screenshot=False)
-                    else:
-                        return await self.shell(f"{self.xdotool} key -- {text}")
+                    pyautogui.press(text)
+                    return ToolResult(output="Key pressed")
                 elif action == "type":
-                    if self._is_windows:
-                        for chunk in chunks(text, TYPING_GROUP_SIZE):
-                            pyautogui.write(chunk, interval=TYPING_DELAY_MS / 1000)
-                        screenshot_result = await self.screenshot()
-                        return ToolResult(
-                            output="Text typed",
-                            base64_image=screenshot_result.base64_image,
-                        )
-                    else:
-                        result = await self.shell(
-                            f"{self.xdotool} type --delay {TYPING_DELAY_MS} -- '{text}'",
-                            take_screenshot=True,
-                        )
-                        return ToolResult(
-                            output="Text typed", base64_image=result.base64_image
-                        )
+                    for chunk in chunks(text, TYPING_GROUP_SIZE):
+                        pyautogui.write(chunk, interval=TYPING_DELAY_MS / 1000)
+                    await asyncio.sleep(self._screenshot_delay)
+                    screenshot_result = await self.screenshot()
+                    return ToolResult(
+                        output="Text typed",
+                        base64_image=screenshot_result.base64_image,
+                    )
 
             if action in (
                 "left_click",
@@ -304,86 +275,24 @@ class ComputerTool(BaseAnthropicTool):
                 if action == "screenshot":
                     return await self.screenshot()
                 elif action == "cursor_position":
-                    if self._is_windows:
-                        pos = pyautogui.position()
-                        x, y = self.scale_coordinates(
-                            ScalingSource.COMPUTER, int(pos.x), int(pos.y)
-                        )
-                        return ToolResult(output=f"X={x},Y={y}")
-                    else:
-                        result = await self.shell(
-                            f"{self.xdotool} getmouselocation --shell"
-                        )
-                        output = result.output or ""
-                        x = int(output.split("X=")[1].split("\n")[0])
-                        y = int(output.split("Y=")[1].split("\n")[0])
-                        x, y = self.scale_coordinates(ScalingSource.COMPUTER, x, y)
-                        return ToolResult(output=f"X={x},Y={y}")
+                    pos = pyautogui.position()
+                    x, y = self.scale_coordinates(
+                        ScalingSource.COMPUTER, int(pos.x), int(pos.y)
+                    )
+                    return ToolResult(output=f"X={x},Y={y}")
                 else:
-                    if self._is_windows:
-                        click_funcs = {
-                            "left_click": pyautogui.click,
-                            "right_click": pyautogui.rightClick,
-                            "middle_click": pyautogui.middleClick,
-                            "double_click": lambda: pyautogui.click(clicks=2),
-                        }
-                        click_funcs[action]()
-                        return await self.shell("", take_screenshot=False)
-                    else:
-                        click_arg = {
-                            "left_click": "1",
-                            "right_click": "3",
-                            "middle_click": "2",
-                            "double_click": "--repeat 2 --delay 500 1",
-                        }[action]
-                        return await self.shell(f"{self.xdotool} click {click_arg}")
+                    click_funcs = {
+                        "left_click": pyautogui.click,
+                        "right_click": pyautogui.rightClick,
+                        "middle_click": pyautogui.middleClick,
+                        "double_click": lambda: pyautogui.click(clicks=2),
+                    }
+                    click_funcs[action]()
+                    return ToolResult(output=f"{action} performed")
 
             raise ToolError(f"Invalid action: {action}")
         except ImportError:
             return ToolResult(error="pyautogui is not installed")
 
-    def to_params(self) -> BetaToolUnionParam:
-        """Return the parameters for this tool."""
-        return cast(
-            BetaToolUnionParam,
-            {
-                "type": "function",
-                "function": {
-                    "name": self.name,
-                    "description": "A tool that allows the agent to control the computer.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "action": {
-                                "type": "string",
-                                "enum": [
-                                    "key",
-                                    "type",
-                                    "mouse_move",
-                                    "left_click",
-                                    "left_click_drag",
-                                    "right_click",
-                                    "middle_click",
-                                    "double_click",
-                                    "screenshot",
-                                    "cursor_position",
-                                ],
-                                "description": "The action to perform",
-                            },
-                            "text": {
-                                "type": "string",
-                                "description": "Text to type or key to press",
-                            },
-                            "coordinate": {
-                                "type": "array",
-                                "items": {"type": "integer"},
-                                "minItems": 2,
-                                "maxItems": 2,
-                                "description": "X,Y coordinates for mouse actions",
-                            },
-                        },
-                        "required": ["action"],
-                    },
-                },
-            },
-        )
+    def to_params(self) -> BetaToolComputerUse20241022Param:
+        return {"name": self.name, "type": self.api_type, **self.options}

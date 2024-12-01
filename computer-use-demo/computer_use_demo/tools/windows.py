@@ -102,7 +102,6 @@ class _WindowsSession:
 class WindowsTool(BaseAnthropicTool):
     """
     A tool that allows the agent to run Windows commands.
-    The tool parameters are defined by Anthropic and are not editable.
     """
 
     _session: _WindowsSession | None
